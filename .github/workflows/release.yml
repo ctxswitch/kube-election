@@ -74,6 +74,8 @@ jobs:
   publish:
     name: publish to crates.io
     runs-on: ubuntu-latest
+    env:
+      K8S_OPENAPI_ENABLED_VERSION: "1.32"
     needs: release
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
