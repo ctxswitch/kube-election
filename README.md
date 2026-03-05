@@ -1,56 +1,46 @@
 # kube-election
 
-A Kubernetes leader election library using Lease objects, ported 1:1 from Go's
-[client-go/tools/leaderelection](https://github.com/kubernetes/client-go/tree/master/tools/leaderelection).
+A Kubernetes leader election library using Lease objects that closely mirrors the feature sets of the controller-runtime package in the go ecosystem.
 
-Only one replica in a set reconciles at a time, matching the pattern used by
-Go's controller-runtime.
+Only one replica in a set reconciles at a time, ensuring single-writer semantics for controllers.
 
 ## Usage
 
 ```rust
-use kube_election::{
-    LeaderElector, LeaderElectionConfig, LeaderCallbacks, LeaseLock,
-};
-use std::time::Duration;
+use kube_election::LeaderElection;
 use tokio_util::sync::CancellationToken;
 
 let client = kube::Client::try_default().await?;
-let lock = LeaseLock::new(
-    client,
-    "my-controller-leader".into(),
-    "default".into(),
-    "pod-abc123".into(),
-);
+let election = LeaderElection::builder("my-controller-leader", client)
+    .on_started_leading(|token| async move {
+        // Run your controller here. The token is cancelled
+        // when leadership is lost.
+        my_controller(token).await;
+    })
+    .on_stopped_leading(|| {
+        tracing::info!("stopped leading");
+    })
+    .on_new_leader(|identity| {
+        tracing::info!(%identity, "new leader observed");
+    })
+    .build()?;
 
-let config = LeaderElectionConfig {
-    lock,
-    lease_duration: Duration::from_secs(15),
-    renew_deadline: Duration::from_secs(10),
-    retry_period: Duration::from_secs(2),
-    release_on_cancel: true,
-    name: "my-controller".into(),
-    callbacks: LeaderCallbacks {
-        on_started_leading: Box::new(|token| Box::pin(async move {
-            // Run your controller here. The token is cancelled
-            // when leadership is lost.
-            my_controller(token).await;
-        })),
-        on_stopped_leading: Box::new(|| {
-            tracing::info!("stopped leading");
-        }),
-        on_new_leader: Some(std::sync::Arc::new(|identity: &str| {
-            tracing::info!(%identity, "new leader observed");
-        })),
-    },
-};
-
-let elector = LeaderElector::new(config)?;
 let token = CancellationToken::new();
-elector.run(token).await;
+election.run(token).await;
 // on_stopped_leading is always called before run returns,
 // even if leadership was never acquired.
 ```
+
+Builder defaults:
+
+| Option | Default |
+|---|---|
+| **namespace** | read from the in-cluster service account |
+| **identity** | `{hostname}_{uuid}` |
+| **lease_duration** | 15s |
+| **renew_deadline** | 10s |
+| **retry_period** | 2s |
+| **release_on_cancel** | false |
 
 ## Design
 
@@ -75,8 +65,8 @@ slow path (GET then PUT). Non-leaders always use the slow path.
 
 ### Jitter
 
-Retry sleeps include jitter matching Go's `wait.Jitter(duration, 1.2)`,
-producing intervals in `[base, base * 2.2)` to prevent thundering herds.
+Retry sleeps include jitter producing intervals in `[base, base * 2.2)` to
+prevent thundering herds.
 
 ## Configuration invariants
 
@@ -105,16 +95,3 @@ impl ResourceLock for MyLock {
     fn describe(&self) -> String { todo!() }
 }
 ```
-
-## Go to Rust mapping
-
-| Go | Rust | Notes |
-|---|---|---|
-| `context.Context` | `CancellationToken` | Async cancellation |
-| `go func()` | `tokio::spawn` | Detached task for `on_started_leading` |
-| `defer` | Explicit call at all exit paths | `on_stopped_leading` always fires |
-| `sync.RWMutex` | `tokio::sync::RwLock` | Single lock guards observed state |
-| `clock.Clock` | `tokio::time::Instant` | `pause()` enables deterministic tests |
-| `Update` (PUT) | `kube::Api::replace()` | Same HTTP PUT with resourceVersion |
-| `bytes.Equal` | `Vec<u8>` equality | Raw record comparison |
-| `wait.JitterUntil` | Loop + `sleep(jittered)` | Manual jitter implementation |

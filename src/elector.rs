@@ -12,15 +12,14 @@ use crate::lock::ResourceLock;
 use crate::record::LeaderElectionRecord;
 
 /// Consolidated observed state, protected by a single `RwLock` to ensure
-/// atomicity across record, raw bytes, and observed time — matching Go's
-/// single `observedRecordLock sync.RWMutex`.
+/// atomicity across record, raw bytes, and observed time.
 struct ObservedState {
     record: LeaderElectionRecord,
     raw: Vec<u8>,
     time: Instant,
 }
 
-/// Leader election client, a 1:1 port of Go's client-go `LeaderElector`.
+/// Leader election client.
 ///
 /// Uses local monotonic time (`tokio::time::Instant`) to determine lease
 /// validity, making it tolerant to arbitrary clock skew between nodes.
@@ -75,7 +74,6 @@ impl<L: ResourceLock + 'static> LeaderElector<L> {
         let child_token = token.child_token();
         let future = (elector.config.callbacks.on_started_leading)(child_token.clone());
         // Detached: on_started_leading runs independently, signalled via child_token.
-        // Mirrors Go's `go le.config.Callbacks.OnStartedLeading(ctx)`.
         drop(tokio::spawn(future));
 
         elector.renew(&token).await;
@@ -118,8 +116,7 @@ impl<L: ResourceLock + 'static> LeaderElector<L> {
 
             let success;
             loop {
-                // Short-circuit if cancelled before making API calls,
-                // matching Go's PollUntilContextTimeout behavior.
+                // Short-circuit if cancelled before making API calls.
                 if token.is_cancelled() {
                     self.maybe_report_transition().await;
                     self.config.lock.record_event("stopped leading");
@@ -285,8 +282,7 @@ impl<L: ResourceLock + 'static> LeaderElector<L> {
     }
 
     /// Release the leader lease by setting the holder to empty and the
-    /// duration to 1 second. Guarded by a timeout matching Go's
-    /// `context.WithTimeout(ctx, le.config.RenewDeadline)`.
+    /// duration to 1 second. Guarded by a timeout of `renew_deadline`.
     async fn release(&self) {
         let timeout = self.config.renew_deadline;
         if tokio::time::timeout(timeout, self.release_inner())
@@ -383,7 +379,7 @@ impl<L: ResourceLock + 'static> LeaderElector<L> {
     }
 }
 
-/// Apply jitter to a duration matching Go's `wait.Jitter(duration, JitterFactor)`.
+/// Apply jitter to a duration.
 ///
 /// Returns a duration in `[base, base * (1.0 + JITTER_FACTOR))`.
 fn jittered_duration(base: Duration) -> Duration {
@@ -519,7 +515,6 @@ mod tests {
             renew_deadline: Duration::from_secs(10),
             retry_period: Duration::from_secs(2),
             release_on_cancel: false,
-            name: "test-election".to_owned(),
             callbacks: LeaderCallbacks {
                 on_started_leading: Box::new(|token| {
                     Box::pin(async move {
@@ -962,7 +957,6 @@ mod tests {
             renew_deadline: Duration::from_secs(10),
             retry_period: Duration::from_secs(2),
             release_on_cancel: false,
-            name: "test".to_owned(),
             callbacks: LeaderCallbacks {
                 on_started_leading: Box::new(|token| {
                     Box::pin(async move {

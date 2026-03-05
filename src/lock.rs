@@ -11,7 +11,7 @@ use tokio::sync::Mutex;
 ///
 /// Implementations manage the lifecycle of a Lease (or similar) object used
 /// for leader election. The raw bytes returned by `get` enable byte-level
-/// comparison to detect external mutations (matching Go's `observedRawRecord`).
+/// comparison to detect external mutations.
 // ResourceLock is used exclusively as a generic bound (L: ResourceLock),
 // never as dyn ResourceLock. Object safety is not required.
 #[allow(async_fn_in_trait)]
@@ -39,7 +39,7 @@ pub trait ResourceLock: Send + Sync {
 /// A distributed lock backed by a Kubernetes `Lease` resource.
 ///
 /// Uses `Api::replace()` (HTTP PUT with `resourceVersion`) for atomic
-/// compare-and-swap updates, matching the Go client-go `LeaseLock` semantics.
+/// compare-and-swap updates.
 pub struct LeaseLock {
     lease_api: Api<Lease>,
     name: String,
@@ -50,8 +50,26 @@ pub struct LeaseLock {
 }
 
 impl LeaseLock {
-    /// Create a new `LeaseLock` targeting the given Lease name and namespace.
-    pub fn new(client: kube::Client, name: String, namespace: String, identity: String) -> Self {
+    /// Create a new `LeaseLock` targeting the given Lease resource name.
+    ///
+    /// The namespace is read from the in-cluster service account and the
+    /// holder identity is auto-generated as `{hostname}_{uuid}`.
+    ///
+    /// Returns an error if the namespace or hostname cannot be determined
+    /// (e.g., when running outside a Kubernetes cluster).
+    pub fn new(client: kube::Client, name: String) -> Result<Self, std::io::Error> {
+        let namespace = in_cluster_namespace()?;
+        let identity = generate_identity()?;
+        Ok(Self::with_options(client, name, namespace, identity))
+    }
+
+    /// Create a `LeaseLock` with explicit namespace and identity.
+    pub(crate) fn with_options(
+        client: kube::Client,
+        name: String,
+        namespace: String,
+        identity: String,
+    ) -> Self {
         let lease_api = Api::namespaced(client, &namespace);
         Self {
             lease_api,
@@ -187,6 +205,40 @@ fn parse_micro_time(s: &str) -> Result<Option<MicroTime>, LockError> {
     s.parse::<Timestamp>()
         .map(|ts| Some(MicroTime(ts)))
         .map_err(|e| LockError::InvalidTimestamp(s.to_owned(), e.to_string()))
+}
+
+const IN_CLUSTER_NAMESPACE_PATH: &str = "/var/run/secrets/kubernetes.io/serviceaccount/namespace";
+
+/// Read the namespace from the in-cluster service account.
+///
+/// Returns an `io::Error` if the file does not exist or cannot be read
+/// (e.g., when running outside a Kubernetes cluster).
+pub(crate) fn in_cluster_namespace() -> Result<String, std::io::Error> {
+    let ns = std::fs::read_to_string(IN_CLUSTER_NAMESPACE_PATH)?;
+    Ok(ns.trim().to_owned())
+}
+
+/// Generate a unique holder identity as `{hostname}_{uuid}`.
+///
+/// Returns an `io::Error` if the system hostname cannot be determined.
+pub(crate) fn generate_identity() -> Result<String, std::io::Error> {
+    let hostname = hostname()?;
+    Ok(format!("{}_{}", hostname, uuid::Uuid::new_v4()))
+}
+
+fn hostname() -> Result<String, std::io::Error> {
+    let mut buf = [0u8; 256];
+    // SAFETY: `buf` is a valid, mutable, 256-byte buffer. `gethostname` writes
+    // at most `buf.len()` bytes including a null terminator (or truncates).
+    // The pointer cast from `*mut u8` to `*mut c_char` is valid because
+    // `c_char` is a byte-sized type with the same alignment.
+    let ret = unsafe { libc::gethostname(buf.as_mut_ptr() as *mut libc::c_char, buf.len()) };
+    if ret != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let len = buf.iter().position(|&b| b == 0).unwrap_or(buf.len());
+    String::from_utf8(buf[..len].to_vec())
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
 fn kube_error_to_lock_error(err: kube::Error) -> LockError {

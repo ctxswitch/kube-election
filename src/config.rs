@@ -13,13 +13,9 @@ type OnStartedLeading =
     Box<dyn Fn(CancellationToken) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// Callback invoked when a new leader is observed.
-/// Wrapped in `Arc` so it can be spawned into a separate task,
-/// matching Go's goroutine dispatch in `maybeReportTransition`.
 type OnNewLeader = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// Jitter factor applied when comparing `renew_deadline` against `retry_period`.
-///
-/// Matches the Go constant `JitterFactor = 1.2`.
 pub const JITTER_FACTOR: f64 = 1.2;
 
 /// Configuration for a leader election instance.
@@ -37,8 +33,6 @@ pub struct LeaderElectionConfig<L: ResourceLock> {
     pub retry_period: Duration,
     /// Whether to release the lease when the cancellation token fires.
     pub release_on_cancel: bool,
-    /// Human-readable name for this election (used in logging).
-    pub name: String,
     /// Callbacks invoked on leadership transitions.
     pub callbacks: LeaderCallbacks,
 }
@@ -60,30 +54,28 @@ pub struct LeaderCallbacks {
 impl<L: ResourceLock> LeaderElectionConfig<L> {
     /// Validate the configuration, returning an error if any invariants are
     /// violated.
-    ///
-    /// Mirrors the validation in Go's `NewLeaderElector`.
     pub(crate) fn validate(&self) -> Result<(), LeaderElectionError> {
         if self.lease_duration.is_zero() {
             return Err(LeaderElectionError::InvalidConfig(
-                "lease_duration must be greater than zero",
+                "lease_duration must be greater than zero".into(),
             ));
         }
 
         if self.renew_deadline.is_zero() {
             return Err(LeaderElectionError::InvalidConfig(
-                "renew_deadline must be greater than zero",
+                "renew_deadline must be greater than zero".into(),
             ));
         }
 
         if self.retry_period.is_zero() {
             return Err(LeaderElectionError::InvalidConfig(
-                "retry_period must be greater than zero",
+                "retry_period must be greater than zero".into(),
             ));
         }
 
         if self.lease_duration <= self.renew_deadline {
             return Err(LeaderElectionError::InvalidConfig(
-                "lease_duration must be greater than renew_deadline",
+                "lease_duration must be greater than renew_deadline".into(),
             ));
         }
 
@@ -91,13 +83,13 @@ impl<L: ResourceLock> LeaderElectionConfig<L> {
             Duration::from_secs_f64(self.retry_period.as_secs_f64() * JITTER_FACTOR);
         if self.renew_deadline <= jittered_retry {
             return Err(LeaderElectionError::InvalidConfig(
-                "renew_deadline must be greater than retry_period * JITTER_FACTOR",
+                "renew_deadline must be greater than retry_period * JITTER_FACTOR".into(),
             ));
         }
 
         if self.lock.identity().is_empty() {
             return Err(LeaderElectionError::InvalidConfig(
-                "lock identity must not be empty",
+                "lock identity must not be empty".into(),
             ));
         }
 
@@ -161,7 +153,6 @@ mod tests {
             renew_deadline: renew,
             retry_period: retry,
             release_on_cancel: false,
-            name: "test".to_owned(),
             callbacks: LeaderCallbacks {
                 on_started_leading: Box::new(|token| {
                     Box::pin(async move {

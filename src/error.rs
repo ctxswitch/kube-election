@@ -5,7 +5,7 @@ use thiserror::Error;
 pub enum LeaderElectionError {
     /// The configuration is invalid.
     #[error("invalid config: {0}")]
-    InvalidConfig(&'static str),
+    InvalidConfig(Box<dyn std::error::Error + Send + Sync>),
 }
 
 /// Errors returned by resource lock operations.

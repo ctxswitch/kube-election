@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 /// Record stored in the Lease object representing the current leader election state.
 ///
-/// Maps 1:1 to the Lease spec fields. Derives `Serialize`/`Deserialize` for raw
-/// byte comparison, matching Go's `observedRawRecord` pattern.
+/// Maps to the Lease spec fields. Derives `Serialize`/`Deserialize` for raw
+/// byte comparison of observed records.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LeaderElectionRecord {
     /// The identity of the current holder of the lease.
