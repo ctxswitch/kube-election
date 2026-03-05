@@ -2,8 +2,6 @@
 
 A Kubernetes leader election library using Lease objects that closely mirrors the feature sets of the controller-runtime package in the Go ecosystem.
 
-Only one replica in a set reconciles at a time, ensuring single-writer semantics for controllers.
-
 ## Usage
 
 ```rust
