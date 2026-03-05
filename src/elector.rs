@@ -73,12 +73,16 @@ impl<L: ResourceLock + 'static> LeaderElector<L> {
 
         let child_token = token.child_token();
         let future = (elector.config.callbacks.on_started_leading)(child_token.clone());
-        // Detached: on_started_leading runs independently, signalled via child_token.
-        drop(tokio::spawn(future));
+        // Spawn the leader task and await it after cancellation so that cleanup
+        // work inside on_started_leading completes before on_stopped_leading runs.
+        let handle = tokio::spawn(future);
 
         elector.renew(&token).await;
 
         child_token.cancel();
+        if let Err(err) = handle.await {
+            tracing::error!(%err, "on_started_leading task failed");
+        }
         on_stopped_leading();
     }
 
