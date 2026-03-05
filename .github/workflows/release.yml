@@ -1,0 +1,85 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: create
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: get version from tag
+        id: get_version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: run tests
+        run: cargo test --verbose
+
+      - name: build release
+        run: cargo build --release --verbose
+
+      - name: install git-cliff
+        run: cargo install git-cliff
+
+      - name: generate changelog
+        id: changelog
+        run: |
+          # Generate changelog for the latest tag
+          git-cliff --latest --strip all > RELEASE_NOTES.md
+
+          # Read the changelog into GitHub output
+          echo "CHANGELOG<<EOF" >> $GITHUB_OUTPUT
+          cat RELEASE_NOTES.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: create release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release v${{ steps.get_version.outputs.VERSION }}
+          body: |
+            ## Changes
+
+            ${{ steps.changelog.outputs.CHANGELOG }}
+
+            ## Installation
+
+            ```bash
+            cargo add kube-election
+            ```
+
+            Or add to your `Cargo.toml`:
+            ```toml
+            [dependencies]
+            kube-election = "${{ steps.get_version.outputs.VERSION }}"
+            ```
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish:
+    name: publish to crates.io
+    runs-on: ubuntu-latest
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: publish to crates.io
+        run: cargo publish --token ${{ secrets.CARGO_TOKEN }}
+        continue-on-error: true

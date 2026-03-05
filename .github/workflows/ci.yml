@@ -1,0 +1,183 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  test:
+    name: test (${{ matrix.rust }}, k8s ${{ matrix.k8s-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rust: [stable, nightly]
+        k8s-version: ["1.31", "1.32", "1.33", "1.34", "1.35"]
+    env:
+      K8S_OPENAPI_ENABLED_VERSION: ${{ matrix.k8s-version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ubuntu-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ubuntu-cargo-registry-
+
+      - name: cache cargo index
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/git
+          key: ubuntu-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ubuntu-cargo-index-
+
+      - name: cache cargo build
+        uses: actions/cache@v5
+        with:
+          path: target
+          key: ubuntu-${{ matrix.rust }}-k8s${{ matrix.k8s-version }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ubuntu-${{ matrix.rust }}-k8s${{ matrix.k8s-version }}-cargo-build-target-
+
+      - name: check
+        run: cargo check --all-targets
+
+      - name: run tests
+        run: cargo test --verbose
+
+      - name: run doc tests
+        run: cargo test --doc
+
+  lint:
+    name: lint (k8s ${{ matrix.k8s-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        k8s-version: ["1.31", "1.32", "1.33", "1.34", "1.35"]
+    env:
+      K8S_OPENAPI_ENABLED_VERSION: ${{ matrix.k8s-version }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ubuntu-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ubuntu-cargo-registry-
+
+      - name: cache cargo index
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/git
+          key: ubuntu-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ubuntu-cargo-index-
+
+      - name: cache cargo build
+        uses: actions/cache@v5
+        with:
+          path: target
+          key: ubuntu-k8s${{ matrix.k8s-version }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ubuntu-k8s${{ matrix.k8s-version }}-cargo-build-target-
+
+      - name: check formatting
+        run: cargo fmt -- --check
+
+      - name: run clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  coverage:
+    name: code coverage
+    runs-on: ubuntu-latest
+    env:
+      K8S_OPENAPI_ENABLED_VERSION: "1.32"
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: install tarpaulin
+        run: cargo install cargo-tarpaulin
+
+      - name: generate coverage
+        run: cargo tarpaulin --verbose --workspace --timeout 120 --out xml
+
+      - name: upload coverage to codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          file: ./cobertura.xml
+          fail_ci_if_error: false
+
+  security:
+    name: security audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      checks: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: run cargo audit
+        uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  docs:
+    name: documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: install rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ubuntu-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ubuntu-cargo-registry-
+
+      - name: cache cargo index
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/git
+          key: ubuntu-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ubuntu-cargo-index-
+
+      - name: check documentation
+        run: cargo doc --no-deps --document-private-items
+        env:
+          RUSTDOCFLAGS: -D warnings
+          K8S_OPENAPI_ENABLED_VERSION: "1.32"
