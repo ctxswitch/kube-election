@@ -1,5 +1,11 @@
 # kube-election
 
+[![CI](https://github.com/ctxswitch/kube-election/workflows/ci/badge.svg)](https://github.com/ctxswitch/kube-election/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/kube-election.svg)](https://crates.io/crates/kube-election)
+[![Documentation](https://docs.rs/kube-election/badge.svg)](https://docs.rs/kube-election)
+[![codecov](https://img.shields.io/codecov/c/github/ctxswitch/kube-election)](https://app.codecov.io/gh/ctxswitch/kube-election)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+
 A Kubernetes leader election library using Lease objects that closely mirrors the feature sets of the controller-runtime package in the Go ecosystem.
 
 ## Usage
