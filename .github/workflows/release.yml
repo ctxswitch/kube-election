@@ -12,6 +12,8 @@ jobs:
   release:
     name: create
     runs-on: ubuntu-latest
+    env:
+      K8S_OPENAPI_ENABLED_VERSION: "1.32"
     steps:
       - uses: actions/checkout@v6
         with:
