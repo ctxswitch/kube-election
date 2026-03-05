@@ -13,6 +13,7 @@ use crate::lock::{generate_identity, in_cluster_namespace, LeaseLock};
 const DEFAULT_LEASE_DURATION: Duration = Duration::from_secs(15);
 const DEFAULT_RENEW_DEADLINE: Duration = Duration::from_secs(10);
 const DEFAULT_RETRY_PERIOD: Duration = Duration::from_secs(2);
+const DEFAULT_SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(30);
 
 /// High-level leader election handle.
 ///
@@ -59,6 +60,7 @@ impl LeaderElection {
             renew_deadline: DEFAULT_RENEW_DEADLINE,
             retry_period: DEFAULT_RETRY_PERIOD,
             release_on_cancel: false,
+            shutdown_grace_period: DEFAULT_SHUTDOWN_GRACE_PERIOD,
             on_started_leading: None,
             on_stopped_leading: None,
             on_new_leader: None,
@@ -97,6 +99,7 @@ pub struct LeaderElectionBuilder {
     renew_deadline: Duration,
     retry_period: Duration,
     release_on_cancel: bool,
+    shutdown_grace_period: Duration,
     on_started_leading: Option<OnStartedLeading>,
     on_stopped_leading: Option<Box<dyn FnOnce() + Send + Sync>>,
     on_new_leader: Option<OnNewLeader>,
@@ -140,6 +143,13 @@ impl LeaderElectionBuilder {
     /// Default: false.
     pub fn release_on_cancel(mut self, v: bool) -> Self {
         self.release_on_cancel = v;
+        self
+    }
+
+    /// Maximum time to wait for `on_started_leading` to return after
+    /// leadership is lost before aborting the task. Default: 30s.
+    pub fn shutdown_grace_period(mut self, d: Duration) -> Self {
+        self.shutdown_grace_period = d;
         self
     }
 
@@ -208,6 +218,7 @@ impl LeaderElectionBuilder {
             renew_deadline: self.renew_deadline,
             retry_period: self.retry_period,
             release_on_cancel: self.release_on_cancel,
+            shutdown_grace_period: self.shutdown_grace_period,
             callbacks: LeaderCallbacks {
                 on_started_leading,
                 on_stopped_leading: self.on_stopped_leading.unwrap_or_else(|| Box::new(|| {})),

@@ -81,6 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | **renew_deadline** | 10s | How long the leader retries refreshing the lease before giving up and losing leadership. |
 | **retry_period** | 2s | Interval between acquire or renew attempts. Jitter is applied automatically. |
 | **release_on_cancel** | false | Whether to release the lease when the cancellation token fires. Speeds up leader transitions but requires the process to exit immediately after `run` returns. |
+| **shutdown_grace_period** | 30s | Maximum time to wait for return after leadership is lost. If the callback does not exit within this period the task is aborted. |
 | **on_started_leading** | wait for cancellation | Called when this instance becomes the leader. Receives a `CancellationToken` that is cancelled when leadership is lost. |
 | **on_stopped_leading** | no-op | Called when this instance stops leading. Always called before `run` returns, even if leadership was never acquired. |
 | **on_new_leader** | none | Called when a new leader is observed, receiving the leader's identity string. |

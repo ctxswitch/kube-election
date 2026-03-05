@@ -33,6 +33,10 @@ pub struct LeaderElectionConfig<L: ResourceLock> {
     pub retry_period: Duration,
     /// Whether to release the lease when the cancellation token fires.
     pub release_on_cancel: bool,
+    /// Maximum time to wait for `on_started_leading` to return after
+    /// cancellation before aborting the task. Prevents `run()` from hanging
+    /// indefinitely if user code ignores the cancellation token.
+    pub shutdown_grace_period: Duration,
     /// Callbacks invoked on leadership transitions.
     pub callbacks: LeaderCallbacks,
 }
@@ -153,6 +157,7 @@ mod tests {
             renew_deadline: renew,
             retry_period: retry,
             release_on_cancel: false,
+            shutdown_grace_period: Duration::from_secs(30),
             callbacks: LeaderCallbacks {
                 on_started_leading: Box::new(|token| {
                     Box::pin(async move {

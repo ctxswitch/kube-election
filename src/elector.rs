@@ -75,13 +75,23 @@ impl<L: ResourceLock + 'static> LeaderElector<L> {
         let future = (elector.config.callbacks.on_started_leading)(child_token.clone());
         // Spawn the leader task and await it after cancellation so that cleanup
         // work inside on_started_leading completes before on_stopped_leading runs.
-        let handle = tokio::spawn(future);
+        let mut handle = tokio::spawn(future);
 
         elector.renew(&token).await;
 
         child_token.cancel();
-        if let Err(err) = handle.await {
-            tracing::error!(%err, "on_started_leading task failed");
+        match tokio::time::timeout(elector.config.shutdown_grace_period, &mut handle).await {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                tracing::error!(%err, "on_started_leading task panicked");
+            }
+            Err(_) => {
+                tracing::warn!(
+                    grace_period = ?elector.config.shutdown_grace_period,
+                    "on_started_leading did not exit within grace period, aborting"
+                );
+                handle.abort();
+            }
         }
         on_stopped_leading();
     }
@@ -519,6 +529,7 @@ mod tests {
             renew_deadline: Duration::from_secs(10),
             retry_period: Duration::from_secs(2),
             release_on_cancel: false,
+            shutdown_grace_period: Duration::from_secs(30),
             callbacks: LeaderCallbacks {
                 on_started_leading: Box::new(|token| {
                     Box::pin(async move {
@@ -961,6 +972,7 @@ mod tests {
             renew_deadline: Duration::from_secs(10),
             retry_period: Duration::from_secs(2),
             release_on_cancel: false,
+            shutdown_grace_period: Duration::from_secs(30),
             callbacks: LeaderCallbacks {
                 on_started_leading: Box::new(|token| {
                     Box::pin(async move {
